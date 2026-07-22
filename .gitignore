@@ -1,0 +1,4 @@
+*.out
+*.vvp
+*.vcd
+cpu_sim
