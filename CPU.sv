@@ -333,16 +333,55 @@ end
 
 /// 4th stage, the Memory Stage (MEM)
 wire [31:0] R_DATA_MEM;
+wire sel_accel = res_MEM[10];
 
 DMEM DMEM_MEM
 (
     .clk(clk),
-    .MEM_RD(MEM_RD_MEM),
-    .MEM_WR(MEM_WR_MEM),
+    .MEM_RD(MEM_RD_MEM & ~sel_accel), /// Disable DMEM read when accessing the accelerator
+    .MEM_WR(MEM_WR_MEM & ~sel_accel), /// Disable DMEM write when accessing the accelerator
     .addr(res_MEM),
     .W_DATA(rt_data_MEM),
     .R_DATA(R_DATA_MEM)
 );
+
+wire [31:0] accel_result;
+wire signed [63:0] accel_c_out [0:3][0:3];
+wire accel_clear_w;
+wire [31:0] a_r0_w, a_r1_w, a_r2_w, a_r3_w;
+wire [31:0] b_c0_w, b_c1_w, b_c2_w, b_c3_w;
+wire va_r0_w, va_r1_w, va_r2_w, va_r3_w;
+wire vb_c0_w, vb_c1_w, vb_c2_w, vb_c3_w;
+
+sys_ctrl SYS_CTRL_MEM
+(
+    .clk(clk),
+    .rst_n(rst_n),
+    .wr(MEM_WR_MEM & sel_accel), /// Only write to the accelerator when MEM_WR is high and the address is in the accelerator range
+    .rd(MEM_RD_MEM & sel_accel), /// Only read from the accelerator when MEM_RD is high and the address is in the accelerator range
+    .addr(res_MEM),
+    .wdata(rt_data_MEM),
+    .rdata(accel_result),
+    .array_clear(accel_clear_w),
+    .a_r0(a_r0_w), .a_r1(a_r1_w), .a_r2(a_r2_w), .a_r3(a_r3_w),
+    .b_c0(b_c0_w), .b_c1(b_c1_w), .b_c2(b_c2_w), .b_c3(b_c3_w),
+    .va_r0(va_r0_w), .va_r1(va_r1_w), .va_r2(va_r2_w), .va_r3(va_r3_w),
+    .vb_c0(vb_c0_w), .vb_c1(vb_c1_w), .vb_c2(vb_c2_w), .vb_c3(vb_c3_w),
+    .c_out(accel_c_out)
+);
+
+systolic_array SYSTOLIC_ARRAY_MEM
+(
+    .clk(clk),
+    .clear(accel_clear_w),
+    .a_in_r0(a_r0_w), .a_in_r1(a_r1_w), .a_in_r2(a_r2_w), .a_in_r3(a_r3_w),
+    .b_in_c0(b_c0_w), .b_in_c1(b_c1_w), .b_in_c2(b_c2_w), .b_in_c3(b_c3_w),
+    .valid_a_in_r0(va_r0_w), .valid_a_in_r1(va_r1_w), .valid_a_in_r2(va_r2_w), .valid_a_in_r3(va_r3_w),
+    .valid_b_in_c0(vb_c0_w), .valid_b_in_c1(vb_c1_w), .valid_b_in_c2(vb_c2_w), .valid_b_in_c3(vb_c3_w),
+    .c_out(accel_c_out)
+);
+
+wire [31:0] MEM_RDATA_FINAL = (sel_accel) ? accel_result : R_DATA_MEM; /// Select between DMEM and Accelerator output based on the address
 
 /// MEM/WB Pipeline Registers
 reg [31:0] MEM_R_DATA_WB;
@@ -363,7 +402,7 @@ begin
     end
     else
     begin
-        MEM_R_DATA_WB <= R_DATA_MEM;
+        MEM_R_DATA_WB <= MEM_RDATA_FINAL;
         res_WB <= res_MEM;
         rd_WB <= rd_MEM;
         MEM_TO_REG_WB <= MEM_TO_REG_MEM;
